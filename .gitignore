@@ -1,0 +1,21 @@
+# Estado generado por el entorno: se recrea con docker-compose/scripts/run.sh
+docker-compose/minio-data/
+docker-compose/logs/
+docker-compose/spark-data/
+
+# Lo genera airflow-init y contiene claves: cada instalación tiene las suyas
+docker-compose/config/airflow.cfg
+
+# Copias que instala make load-dags: los originales están en airflow_scripts/
+docker-compose/dags/*
+!docker-compose/dags/.gitkeep
+docker-compose/spark-apps/batch_*.py
+docker-compose/spark-apps/stream_*.py
+
+# Copias que instala make load-notebooks: los originales están en notebooks/
+docker-compose/notebooks/*
+!docker-compose/notebooks/.gitkeep
+
+__pycache__/
+.ipynb_checkpoints/
+env/

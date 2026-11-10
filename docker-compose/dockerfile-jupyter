@@ -1,0 +1,71 @@
+FROM jupyter/minimal-notebook:python-3.11@sha256:1c4c8b6c7c27059c353d4e80523c2696e34723fde67d27418873ebeb42032551
+
+ARG HADOOP_AWS_VER=3.4.0
+ARG AWS_SDK_BUNDLE_VER=1.12.262
+ARG SCALA_BINARY=2.13
+ARG DELTA_VERSION=4.0.0 
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
+
+RUN mkdir -p /opt/spark/jars/
+ENV SPARK_EXTRA_CLASSPATH=/opt/spark/jars/*
+ENV PATH="/opt/spark/jars:${PATH}"
+
+RUN curl -fL -o /opt/spark/jars/hadoop-common-${HADOOP_AWS_VER}.jar \
+    "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-common/${HADOOP_AWS_VER}/hadoop-common-${HADOOP_AWS_VER}.jar"
+
+RUN curl -fL -o /opt/spark/jars/hadoop-aws-${HADOOP_AWS_VER}.jar \
+    "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VER}/hadoop-aws-${HADOOP_AWS_VER}.jar"
+
+RUN curl -fL -o /opt/spark/jars/aws-java-sdk-bundle-2.23.19.jar \
+    "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.23.19/bundle-2.23.19.jar"
+
+RUN curl -fL -o /opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar \
+    "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar"
+
+RUN curl -fL -o /opt/spark/jars/delta-spark_${SCALA_BINARY}-${DELTA_VERSION}.jar \
+    "https://repo1.maven.org/maven2/io/delta/delta-spark_${SCALA_BINARY}/${DELTA_VERSION}/delta-spark_${SCALA_BINARY}-${DELTA_VERSION}.jar"
+    
+RUN curl -fL -o /opt/spark/jars/delta-storage-${DELTA_VERSION}.jar \
+    "https://repo1.maven.org/maven2/io/delta/delta-storage/${DELTA_VERSION}/delta-storage-${DELTA_VERSION}.jar"
+
+RUN curl -fL -o /opt/spark/jars/antlr4-runtime-4.13.1.jar \
+    "https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.13.1/antlr4-runtime-4.13.1.jar"
+
+RUN curl -fL -o /opt/spark/jars/spark-sql-kafka-0-10_2.13-4.0.1.jar \
+    "https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.13/4.0.1/spark-sql-kafka-0-10_2.13-4.0.1.jar"
+
+RUN curl -fL -o /opt/spark/jars/kafka-clients-3.9.1.jar \
+    "https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.9.1/kafka-clients-3.9.1.jar"
+
+RUN curl -fL -o /opt/spark/jars/commons-pool2-2.12.0.jar \
+    "https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.12.0/commons-pool2-2.12.0.jar"
+
+RUN curl -fL -o /opt/spark/jars/mssql-jdbc-12.10.2.jre11.jar \
+    "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.10.2.jre11/mssql-jdbc-12.10.2.jre11.jar"
+
+ENV PYSPARK_PYTHON=/opt/conda/bin/python \
+    PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      openjdk-17-jre-headless python3-pip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install pip==26.3
+
+# requirements-jupyter.lock fija las versiones de todo lo que se instala.
+# Lo regenera el profesorado al actualizar el entorno.
+COPY requirements-jupyter.lock /tmp/requirements-jupyter.lock
+
+RUN pip3 install --no-cache-dir --prefer-binary -c /tmp/requirements-jupyter.lock \
+      jupyterlab ipywidgets pyspark==4.0.1 pandas findspark delta-spark==4.0.0
+
+ENV PYSPARK_PYTHON=python3 \
+    PYSPARK_DRIVER_PYTHON=python3
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="$JAVA_HOME/bin:${PATH}"
+
+CMD start.sh jupyter lab --LabApp.token='' --LabApp.password=''

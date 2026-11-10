@@ -1,0 +1,64 @@
+FROM apache/airflow:3.0.6-python3.11@sha256:5a9c24f3a8ab9135f4fac0993072e837271cc8c8f80b8bb7e17a5e60eb8f7ef3
+
+# ==========================================================================
+# Parte como root: Java y los jars que necesita el driver de Spark
+# ==========================================================================
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jdk-headless curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+ARG HADOOP_AWS_VER=3.4.0
+ARG SCALA_BINARY=2.13
+ARG DELTA_VERSION=4.0.0
+ARG SPARK_VERSION=4.0.1
+
+# Los jars van aquí y se pasan al driver con --driver-class-path desde los DAGs.
+# Los workers ya los llevan en su propia imagen, así que no se reenvían.
+RUN mkdir -p /opt/spark/jars && cd /opt/spark/jars && \
+    # S3A / MinIO
+    curl -fL -O "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_AWS_VER}/hadoop-aws-${HADOOP_AWS_VER}.jar" && \
+    curl -fL -o aws-java-sdk-bundle-2.23.19.jar "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.23.19/bundle-2.23.19.jar" && \
+    # Delta Lake
+    curl -fL -O "https://repo1.maven.org/maven2/io/delta/delta-spark_${SCALA_BINARY}/${DELTA_VERSION}/delta-spark_${SCALA_BINARY}-${DELTA_VERSION}.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/io/delta/delta-storage/${DELTA_VERSION}/delta-storage-${DELTA_VERSION}.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.13.1/antlr4-runtime-4.13.1.jar" && \
+    # Kafka (los necesita la capa bronze del DAG de streaming)
+    curl -fL -O "https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_${SCALA_BINARY}/${SPARK_VERSION}/spark-sql-kafka-0-10_${SCALA_BINARY}-${SPARK_VERSION}.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_${SCALA_BINARY}/${SPARK_VERSION}/spark-token-provider-kafka-0-10_${SCALA_BINARY}-${SPARK_VERSION}.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.9.1/kafka-clients-3.9.1.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.12.0/commons-pool2-2.12.0.jar" && \
+    curl -fL -O "https://repo1.maven.org/maven2/org/scala-lang/modules/scala-parallel-collections_${SCALA_BINARY}/1.2.0/scala-parallel-collections_${SCALA_BINARY}-1.2.0.jar" && \
+    # SQL Server
+    curl -fL -O "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.10.2.jre11/mssql-jdbc-12.10.2.jre11.jar" && \
+    chmod -R a+r /opt/spark/jars
+
+# ==========================================================================
+# Parte como airflow: paquetes de Python
+# ==========================================================================
+# IMPORTANTE: tiene que ser con el usuario airflow. Si se instala como root,
+# los paquetes no acaban en /home/airflow/.local y SPARK_HOME no los encuentra.
+USER airflow
+
+# requirements-airflow.lock fija también las dependencias transitivas: sin él,
+# una versión nueva publicada en PyPI puede romper el entorno de un año para otro.
+# Lo regenera el profesorado al actualizar el entorno.
+COPY requirements-airflow.lock /tmp/requirements-airflow.lock
+
+RUN pip install --no-cache-dir -c /tmp/requirements-airflow.lock \
+        pyspark==4.0.1 \
+        delta-spark==4.0.0 \
+        apache-airflow-providers-apache-spark==5.3.2 \
+        apache-airflow-providers-amazon==9.12.0
+
+# pyspark trae su propia distribución de Spark (bin/, jars/, conf/), así que
+# SPARK_HOME apunta ahí. No hace falta descargar el tgz de Spark por separado.
+ENV SPARK_HOME=/home/airflow/.local/lib/python3.11/site-packages/pyspark
+ENV PATH="${SPARK_HOME}/bin:${PATH}"
+
+# Para que los scripts puedan hacer `import comun`
+ENV PYTHONPATH=/opt/spark-apps
